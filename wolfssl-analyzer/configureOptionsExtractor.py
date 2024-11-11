@@ -23,24 +23,37 @@ import re
 import argparse
 import subprocess
 
-def OptionsExtractor(configure_output:str) -> list[str]:
+def OptionsExtractor(sort_opts, add_disable, configure_output:str) -> list[str]:
     """
     Extract configure options from the given configure output.
     """
-    options = []
+    opts = []
     for line in configure_output.splitlines():
-        if line.startswith('  --'):
+        if line.startswith('  --enable'):
             option = line.split()[0]
             words = line.strip().split()
             option = re.split(r'[=\[]', words[0])[0]
-            options.append(option)
-    return options
+            opts.append(option)
+
+    if sort_opts:
+        opts.sort()
+
+    if add_disable:
+        opts_dis = []
+        for option in opts:
+            opts_dis.append(option)
+            opts_dis.append(option.replace("enable", "disable"))
+        return opts_dis
+    else:
+        return opts
 
 def main():
     parser = argparse.ArgumentParser(description='List all the configure options from wolfssl/configure')
     parser.add_argument('--wolfssl-path', required=True, help='Path to wolfssl source code')
     parser.add_argument('--output', help='Output file to save the configure options. Default: stdout')
     parser.add_argument('--print-error', action='store_true', help='Print error message while running configure command')
+    parser.add_argument('--add-disable', action='store_true', help='')
+    parser.add_argument('--sort', action='store_true', help='')
     args = parser.parse_args()
 
     configure_command = ['sh', '-c', f'cd {args.wolfssl_path} && ./configure --help=short']
@@ -50,7 +63,7 @@ def main():
         if args.print_error:
             print(result.stderr)
     output_configure = str(result.stdout)
-    options = OptionsExtractor(output_configure)
+    options = OptionsExtractor(args.sort, args.add_disable, output_configure)
     
     if args.output:
         with open(args.output, 'w') as f:

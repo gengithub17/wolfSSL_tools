@@ -123,6 +123,7 @@ def main():
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--wolfssl-path', type=str, required=True, help='wolfSSL home dir path.')
     parser.add_argument('--options-file', type=str, help='Text file with options to be executed. If not provided, all options will be executed')
+    parser.add_argument('--mdtable', action='store_true', default=False, help='Output in MD Table format')
     parser.add_argument('--txtformat', action='store_true', default=False, \
                         help='Output data format. Enable to TXT, disable to JSON. Default: Disable(JSON)')
     parser.add_argument('--output', type=str, default=None, help="Output file to save the results. Default: stdout")
@@ -165,6 +166,19 @@ def main():
             outputstr += f"{option}:\n"
             outputstr += f"\tIncremental: {diff['increment']}\n"
             outputstr += f"\tDecremental: {diff['decrement']}\n"
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(outputstr)
+        else:
+            print("### Show Results ###")
+            print(outputstr)
+            print("####################")
+    elif args.mdtable:
+        outputstr = ""
+        for option, diff in diffdict.items():
+            outputstr += f"\n|{option}|"
+            outputstr += str(diff['increment']).replace("\'", "").replace("[", "").replace("]", "")+ "|"
+            outputstr += str(diff['decrement']).replace("\'", "").replace("[", "").replace("]", "")+ "|"
         if args.output:
             with open(args.output, 'w') as f:
                 f.write(outputstr)
