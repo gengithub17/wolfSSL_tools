@@ -19,7 +19,6 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA
 
-import json
 import subprocess
 import argparse
 import sys
@@ -32,7 +31,6 @@ HEADCOMP = os.path.join(os.path.dirname(__file__),"headerComparator.py")
 OPTIONSFILE = "options.txt"
 DEFAULTHEADER = "default.h"
 TMP_INCREMENT = "increment.txt"
-TMP_DECREMENT = "decrement.txt"
 FAILED_OPTIONS_FILE = "failed_options.txt"
 
 def configureOptionsExtractor() -> list[str]:
@@ -77,15 +75,14 @@ def storeSourceHeaderFile():
         raise Exception("Error while copying header file")
     return
 
-def recordDiff(option: str) -> dict:
+def recordDiff(option: str, ignore_macros: set[str]) -> list[str]:
     """
     Record the diff between the generated header by given option and the default header.
     """
     configureExecute(option)
     diff_command = ['sh', '-c', f'python3 {HEADCOMP} --source \
         {TMP_DIR}/{DEFAULTHEADER} --target {WOLFSSLPATH}/wolfssl/options.h\
-        --incremental-output {TMP_DIR}/{TMP_INCREMENT} \
-        --decremental-output {TMP_DIR}/{TMP_DECREMENT}']
+        --increment {TMP_DIR}/{TMP_INCREMENT}']
     print(f'Running header comparator program...')
     result = subprocess.run(diff_command, capture_output=True, text=True)
     if result.returncode != 0:
@@ -94,14 +91,9 @@ def recordDiff(option: str) -> dict:
         print('\t' + result.stderr, file=sys.stderr)
         raise Exception("Error while running header comparator")
 
-    retdict = dict()
     with open(f"{TMP_DIR}/{TMP_INCREMENT}", 'r') as f:
-        retdict["increment"] = f.read().splitlines()
-    with open(f"{TMP_DIR}/{TMP_DECREMENT}", 'r') as f:
-        retdict["decrement"] = f.read().splitlines()
-    return retdict
+        return [macro for macro in f.read().splitlines() if macro not in ignore_macros]
 
-    
 def cleanup():
     """
     Remove temporary files and directories.
@@ -113,8 +105,6 @@ def cleanup():
         os.remove(f"{TMP_DIR}/{DEFAULTHEADER}")
     if os.path.exists(f"{TMP_DIR}/{TMP_INCREMENT}"):
         os.remove(f"{TMP_DIR}/{TMP_INCREMENT}")
-    if os.path.exists(f"{TMP_DIR}/{TMP_DECREMENT}"):
-        os.remove(f"{TMP_DIR}/{TMP_DECREMENT}")
     if os.listdir(TMP_DIR) == []:
         os.rmdir(TMP_DIR)
     return 0
@@ -123,9 +113,9 @@ def main():
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--wolfssl-path', type=str, required=True, help='wolfSSL home dir path.')
     parser.add_argument('--options-file', type=str, help='Text file with options to be executed. If not provided, all options will be executed')
-    parser.add_argument('--txtformat', action='store_true', default=False, \
-                        help='Output data format. Enable to TXT, disable to JSON. Default: Disable(JSON)')
+    parser.add_argument('--format', type=str, default='mdtable', help="Output format. mdtable : Markdown table, txt : Plain text")
     parser.add_argument('--output', type=str, default=None, help="Output file to save the results. Default: stdout")
+    parser.add_argument('--ignore-macros', type=str, default=None, help="Text file with macros to be ignored.")
 
     args = parser.parse_args()
 
@@ -135,6 +125,16 @@ def main():
     if os.path.exists(WOLFSSLPATH) == False:
         print(f"Invalid wolfSSL home directory: {WOLFSSLPATH}", file=sys.stderr)
         sys.exit(1)
+    if args.format not in ['mdtable', 'txt']:
+        print(f"Invalid format: {args.format}", file=sys.stderr)
+        sys.exit(1)
+    ignore_macros = set()
+    if args.ignore_macros:
+        if os.path.isfile(args.ignore_macros) == False:
+            print(f"Invalid ignore macros file: {args.ignore_macros}", file=sys.stderr)
+            sys.exit(1)
+        with open(args.ignore_macros, 'r') as f:
+            ignore_macros = set(f.read().splitlines())
 
     options = []
     if args.options_file: 
@@ -153,31 +153,35 @@ def main():
 
     storeSourceHeaderFile()
 
-    diffdict = {}
     options_len = len(options)
+    outputbuf = []
     for idx, option in enumerate(options):
         print(f"Processing {idx+1}/{options_len} : {option}")
-        diffdict[option] = recordDiff(option)
-
-    if args.txtformat:
+        diff = recordDiff(option, ignore_macros)
+        if diff == []:
+            continue
         outputstr = ""
-        for option, diff in diffdict.items():
+        if args.format == 'mdtable':
+            outputstr += f"# {option}\n"
+            for macro in diff:
+                outputstr += f"- {macro}\n"
+            outputstr += "\n"
+        else: # txt format
             outputstr += f"{option}:\n"
-            outputstr += f"\tIncremental: {diff['increment']}\n"
-            outputstr += f"\tDecremental: {diff['decrement']}\n"
+            for macro in diff:
+                outputstr += f"\t{macro}\n"
+            outputstr += "\n"
         if args.output:
-            with open(args.output, 'w') as f:
+            with open(args.output, 'a') as f:
                 f.write(outputstr)
-        else:
-            print("### Show Results ###")
-            print(outputstr)
-            print("####################")
-    else:
-        if args.output:
-            with open(args.output, 'w') as f:
-                json.dump(diffdict, f, indent=4)
-        else:
-            print(diffdict)
+        else: # stdout
+            outputbuf.append(outputstr)
+    
+    if args.output == "txt":
+        print("### Show Results ###")
+        for output in outputbuf:
+            print(output, end="")
+        print("####################")
 
     if os.path.exists(f"{FAILED_OPTIONS_FILE}"):
         print("Some options are failed to execute configure command.")

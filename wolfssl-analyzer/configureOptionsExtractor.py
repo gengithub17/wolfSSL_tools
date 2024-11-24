@@ -38,9 +38,10 @@ def OptionsExtractor(configure_output:str) -> list[str]:
 
 def main():
     parser = argparse.ArgumentParser(description='List all the configure options from wolfssl/configure')
-    parser.add_argument('--wolfssl-path', required=True, help='Path to wolfssl source code')
-    parser.add_argument('--output', help='Output file to save the configure options. Default: stdout')
+    parser.add_argument('--wolfssl-path', type=str, required=True, help='Path to wolfssl source code')
+    parser.add_argument('--output', type=str, help='Output file to save the configure options. Default: stdout')
     parser.add_argument('--print-error', action='store_true', help='Print error message while running configure command')
+    parser.add_argument('--manual-disable-only', action='store_true', help='Disable automatic generation of "disable" for option names containing "enable"')
     args = parser.parse_args()
 
     configure_command = ['sh', '-c', f'cd {args.wolfssl_path} && ./configure --help=short']
@@ -51,6 +52,13 @@ def main():
             print(result.stderr)
     output_configure = str(result.stdout)
     options = OptionsExtractor(output_configure)
+
+    if not args.manual_disable_only:
+        for option in options:
+            if 'enable' in option:
+                disable_option = option.replace('enable', 'disable')
+                if disable_option not in options:
+                    options.append(disable_option)
     
     if args.output:
         with open(args.output, 'w') as f:
